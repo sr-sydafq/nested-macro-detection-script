@@ -51,7 +51,6 @@ const useDomParser = async (storageFormat, pageId) => {
         }
     }
     if (foundNested) {
-        console.log("Found a nested Scaffolding macro in pageId: " + pageId);
         // Save the page ID to my csv file
         await saveToCSV([pageId]);
 
@@ -149,6 +148,29 @@ const getStorageFormat = async (pageId) => {
     return storageBody;
 }
 
+const getListOfSpaceTemplateInSpace = async (spaceId) => {
+    const auth = "Basic " + new Buffer(USERNAME + ":" + PASSWORD).toString("base64");
+
+    const headers = {
+        'Authorization': auth
+    };
+    const res = await fetch(`http://${HOSTNAME}/rest/experimental/template/page?spaceKey=${spaceId}&expand=body`, {
+        headers: headers
+    });
+
+    const resBody = await res.text();
+    const formattedResponse = JSON.parse(resBody);
+    if(formattedResponse.results.length){
+        for(item of formattedResponse.results) {
+            useDomParser(item.body.storage.value, item.templateId);
+        }
+    }
+    else {
+        console.log("No space template was found in " + spaceId);
+    }
+
+}
+
 const main = async () => {
     await clearCSVFileFromRoot();
     // Does not include archived spaces
@@ -158,6 +180,7 @@ const main = async () => {
     for (let i = 0; i < allSpaceIdsInConfluenceInstance.length; i++) {
         // For each space, get their pages
         const allPageIdsInSpace = await getAllPagesInSpace(allSpaceIdsInConfluenceInstance[i]);
+        await getListOfSpaceTemplateInSpace(allSpaceIdsInConfluenceInstance[i]);
         console.log("All page IDs in space:", allPageIdsInSpace);
 
         // For all the pages, get their storage format and determine if it's a nested Scaffolding macro
