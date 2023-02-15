@@ -3,7 +3,6 @@ const { JSDOM } = require('jsdom');
 const fs = require('fs');
 require("async-lock");
 
-
 // Constants
 const HOSTNAME = 'localhost:9090';
 const USERNAME = 'admin';
@@ -27,16 +26,28 @@ const useDomParser = async (storageFormat, pageId) => {
     for (const node of structuredMacroNodes) {
         // TODO: Add the rest of the Scaffolding macros
         // TODO: fix query logic. It worked previously using raw storage format, but does not work when using the response from the HTTP request since it contains escaped characters.
-        const tableDataNodes = node.querySelectorAll('[ac:name="table-data"]');
-        const textDataNodes = node.querySelectorAll('[ac\\:name="\\"text-data\\""]');
-        const dateDataNodes = node.querySelectorAll('[ac\\:name="\\"date-data\\""]');
+        const arrOfScaffMacros = [
+            "table-data",
+            "text-data",
+            "date-data",
+            "excerpt-data",
+            "list-data",
+            "number-data",
+            "get-data",
+            "eval-data",
+            "hidden-data",
+            "group-data",
+            "repeating-data",
+            "content-data",
+            "option-data",
+            "set-data",
+            "live-template"
+        ];
 
-        if (textDataNodes.length > 0) {
-            foundNested = true;
-        } else if (dateDataNodes.length > 0) {
-            foundNested = true;
-        } else if (tableDataNodes.length > 0) {
-            foundNested = true;
+        for(scaffMacro of arrOfScaffMacros){
+            if(node.querySelectorAll('[ac:name="'+scaffMacro+'"]').length > 0){
+                foundNested = true
+            }
         }
     }
     if (foundNested) {
@@ -66,10 +77,15 @@ async function saveToCSV(data) {
 }
 
 async function clearCSVFileFromRoot() {
-    await fs.unlink('data.csv', (err) => {
-        if (err) throw err;
-        console.log('path/file.txt was deleted');
-    });
+    if (fs.existsSync('data.csv')) {
+        await fs.unlink('data.csv', (err) => {
+            if (err) throw err;
+            console.log('path/file.txt was deleted');
+        });
+    }
+    else {
+        console.log("no data.csv found")
+    }
 }
 
 
