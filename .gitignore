@@ -1,2 +1,8 @@
 node_modules
 data.csv
+.idea/
+target/
+*.iml
+*.ipr
+*.iws
+.DS_Store
