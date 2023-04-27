@@ -132,7 +132,6 @@ async function clearCSVFileFromRoot() {
     }
 }
 
-
 /**
  * Returns all the space IDs in the given Confluence instance.
  * @returns {Promise<*>} an array of space IDs
@@ -153,7 +152,8 @@ const getAllSpaceIds = async () => {
     while (hasMoreResults) {
         // Does not retrieve archived spaces.
         const res = await fetch(`${HOSTNAME}/rest/api/space?start=${defaultStart}&limit=${defaultLimit}`, {
-            headers: headers
+            headers: headers,
+            timeout: 10000
         });
 
         const resBody = await res.json();
@@ -191,7 +191,8 @@ const getAllPageIdsFromSpace = async (spaceId) => {
 
     while (hasMoreResults) {
         const res = await fetch(`${HOSTNAME}/rest/api/space/${spaceId}/content?start=${defaultStart}&limit=${defaultLimit}`, {
-            headers: headers
+            headers: headers,
+            timeout: 10000
         });
 
         const resBody = await res.json();
@@ -222,7 +223,8 @@ const getStorageFormat = async (pageId) => {
     };
 
     const res = await fetch(`${HOSTNAME}/rest/api/content/${pageId}?expand=body.storage`, {
-        headers: headers
+        headers: headers,
+        timeout: 10000
     });
 
     const resBody = await res.text();
@@ -250,7 +252,8 @@ const getListOfSpaceTemplatesInSpace = async (spaceId) => {
 
     while (hasMoreResults) {
         const res = await fetch(`${HOSTNAME}/rest/experimental/template/page?spaceKey=${spaceId}&expand=body&start=${defaultStart}&limit=${defaultLimit}`, {
-            headers: headers
+            headers: headers,
+            timeout: 10000
         });
 
         const resBody = await res.json();
