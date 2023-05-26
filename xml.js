@@ -1,8 +1,7 @@
 const {JSDOM} = require('jsdom');
 const fs = require('fs');
 
-// CLI arguments
-let HOSTNAME = 'http://localhost:9093';
+let HOSTNAME = 'http://localhost:9092';
 let USERNAME = '';
 let PASSWORD = '';
 let START = 0;
@@ -16,120 +15,129 @@ const displayHelp = () => {
         -hn, --hostname         Set Confluence hostname, i.e http://localhost:9093
         -u,  --user             Set Confluence username, i.e admin
         -p,  --password         Set Confluence user password, i.e admin
-        -s,  --start            Set the start offset for Space/SpaceTemplate/Page searches, i.e 0
-        -l,  --limit            Set the limit for Space/SpaceTemplate/Page searches, i.e 500
+        -s,  --start            Set the start offset for Space/SpaceTemplate/Page searches i.e 0 - (you are recommended to leave this at default)
+        -l,  --limit            Set the limit for Space/SpaceTemplate/Page searches i.e 500 - (you are recommended to leave this at default)
     `);
 };
 
 const readCliParameters = () => {
-    PARAMETERS.forEach(parameter => {
-        if (PARAMETERS.includes('-h') || PARAMETERS.includes('--help')) {
-            displayHelp();
-            return;
-        }
+    const PARAMETER_MAP = {
+        '-hn': '--hostname',
+        '-u': '--user',
+        '-p': '--password',
+        '-s': '--start',
+        '-l': '--limit'
+    };
 
-        if (PARAMETERS.indexOf(parameter) % 2 === 1) return;
+    for (let i = 0; i < PARAMETERS.length; i += 2) {
+        const parameter = PARAMETERS[i];
+        const value = PARAMETERS[i + 1];
 
-        let flagIndex = PARAMETERS.indexOf(parameter);
-        let flagValue = PARAMETERS[flagIndex + 1];
-
-        switch (parameter) {
-            case '-hn':
+        switch (PARAMETER_MAP[parameter] || parameter) {
             case '--hostname':
-                HOSTNAME = flagValue;
+                HOSTNAME = value;
                 break;
-            case '-u':
             case '--user':
-                USERNAME = flagValue;
+                USERNAME = value;
                 break;
-            case '-p':
             case '--password':
-                PASSWORD = flagValue;
+                PASSWORD = value;
                 break;
-            case '-s':
             case '--start':
-                START = parseInt(flagValue, 10);
+                START = parseInt(value, 10);
                 break;
-            case '-l':
             case '--limit':
-                LIMIT = parseInt(flagValue, 10);
+                LIMIT = parseInt(value, 10);
                 break;
+            case '-h':
+            case '--help':
+                displayHelp();
+                process.exit(0);
         }
-    });
+    }
 };
 
+const SCAFFOLDING_MACROS = [
+    "table-data",
+    "text-data",
+    "date-data",
+    "excerpt-data",
+    "list-data",
+    "number-data",
+    "get-data",
+    "eval-data",
+    "hidden-data",
+    "group-data",
+    "repeating-data",
+    "content-data",
+    "option-data",
+    "set-data",
+    "live-template"
+];
+
 /**
- * This function is used to determine if the given page contains a nested Scaffolding macro.
+ * This function is used to determine if the given page contains a nested Scaffolding macro and saves the spaceId + contentId to the csv if true.
  * @param storageFormat the storage format of the page
- * @param pageId the ID of the page
+ * @param contentId the ID of the page
+ * @param spaceId the ID of the space
  */
-const useDomParser = async (storageFormat, pageId) => {
-    let foundNested = false;
+const checkForNestedScaffoldingMacro = async (storageFormat, contentId, spaceId) => {
     const dom = new JSDOM(storageFormat);
 
     // Get all Macros in the Page
-    const structuredMacroNodes = dom.window.document.querySelectorAll('ac\\:structured-macro');
+    const structuredMacroNodes =
+        dom.window.document.querySelectorAll('ac\\:structured-macro');
 
     // For every macro, check if it contains any of the Scaffolding macros
-    outerLoop:
-        for (const node of structuredMacroNodes) {
-            // TODO: Add the rest of the Scaffolding macros
-            // TODO: fix query logic. It worked previously using raw storage format, but does not work when using the response from the HTTP request since it contains escaped characters.
-            const arrOfScaffMacros = [
-                "table-data",
-                "text-data",
-                "date-data",
-                "excerpt-data",
-                "list-data",
-                "number-data",
-                "get-data",
-                "eval-data",
-                "hidden-data",
-                "group-data",
-                "repeating-data",
-                "content-data",
-                "option-data",
-                "set-data",
-                "live-template"
-            ];
-
-            for (const scaffMacro of arrOfScaffMacros) {
-                if (node.querySelectorAll('[ac:name="' + scaffMacro + '"]').length > 0) {
-                    foundNested = true
-                    break outerLoop;
-                }
+    for (const node of structuredMacroNodes) {
+        for (const scaffoldingMacro of SCAFFOLDING_MACROS) {
+            if (node.querySelectorAll('[ac:name="' + scaffoldingMacro + '"]').length > 0) {
+                await saveToCSV(spaceId, contentId);
+                return;
             }
         }
-    if (foundNested) {
-        await saveToCSV(pageId);
     }
 }
 
 /**
- * Saves the given array of data to a CSV file in a synchronous fashion. UNTESTED
- * @param data an array of data to save to a CSV file
+ * Saves the given array of data to a CSV file in a synchronous fashion.Here's the continuation of the refactored code:
+
+ * @param spaceId spaceId of the contentId
+ * @param contentId the contentId - either pageId or space template Id if they contain a nested Scaffolding macro
  * @returns {Promise<void>} nothing
  */
-async function saveToCSV(data) {
-    const lock = require('async-lock');
-    const fileLock = new lock();
-
-    await fileLock.acquire('nested_macros.csv', async function (done) {
-        fs.appendFileSync('data.csv', data.toString() + "\n");
-        done();
-    });
+function saveToCSV(spaceId, contentId) {
+    fs.appendFileSync('data.csv', `${spaceId},${contentId.toString()}\n`);
 }
 
-async function clearCSVFileFromRoot() {
-    if (fs.existsSync('data.csv')) {
-        /*        await fs.unlink('data.csv', (err) => {
-                    if (err) throw err;
-                    console.log('path/file.txt was deleted');
-                }); */
-        console.log('path/file.txt was deleted')
+/**
+ * Checks if data.csv exists in the current directory. If it does not exist, it will create it, else it will continue
+ * writing in it.
+ * @returns {Promise<void>} nothing
+ */
+const checkIfCSVExists = async () => {
+    if (!fs.existsSync('data.csv')) {
+        console.log("No data.csv found. Creating data.csv");
+        fs.writeFileSync('data.csv', 'spaceId,contentId\n');
     } else {
-        console.log("no data.csv found")
+        console.log('data.csv found, continuing write');
     }
+}
+
+/**
+ * This function is used to initialize the auth and the start/limit offsets for the requests.
+ * @returns {{headers: {Authorization: string}, startOffset: (number), limitOffset: (number)}}
+ */
+function initializeRequest() {
+    const auth = "Basic " + Buffer.from(`${USERNAME}:${PASSWORD}`).toString("base64");
+
+    const headers = {
+        'Authorization': auth
+    };
+
+    let startOffset = START && START > 0 ? START : 0;
+    const limitOffset = LIMIT && LIMIT > 0 && LIMIT <= 500 ? LIMIT : 500;
+    return {headers, startOffset, limitOffset};
 }
 
 /**
@@ -137,21 +145,13 @@ async function clearCSVFileFromRoot() {
  * @returns {Promise<*>} an array of space IDs
  */
 const getAllSpaceIds = async () => {
-    const auth = "Basic " + new Buffer(USERNAME + ":" + PASSWORD).toString("base64");
-
-    const headers = {
-        'Authorization': auth
-    };
+    let {headers, startOffset, limitOffset} = initializeRequest();
 
     let spaceKeys = [];
     let hasMoreResults = true;
-
-    let defaultStart = START && START > 0 ? START : 0;
-    const defaultLimit = LIMIT && LIMIT > 0 && LIMIT <= 500 ? LIMIT : 500;
-
     while (hasMoreResults) {
         // Does not retrieve archived spaces.
-        const res = await fetch(`${HOSTNAME}/rest/api/space?start=${defaultStart}&limit=${defaultLimit}`, {
+        const res = await fetch(`${HOSTNAME}/rest/api/space?start=${startOffset}&limit=${limitOffset}`, {
             headers: headers,
             timeout: 10000
         });
@@ -161,10 +161,10 @@ const getAllSpaceIds = async () => {
         const currentSpaceKeys = spaces.map(space => space.key);
         spaceKeys = spaceKeys.concat(currentSpaceKeys);
 
-        if (resBody.size < defaultLimit) {
+        if (resBody.size < limitOffset) {
             hasMoreResults = false;
         } else {
-            defaultStart += defaultLimit;
+            startOffset += limitOffset;
         }
     }
 
@@ -177,20 +177,12 @@ const getAllSpaceIds = async () => {
  * @returns {Promise<*[]>} an array of page IDs.
  */
 const getAllPageIdsFromSpace = async (spaceId) => {
-    const auth = "Basic " + new Buffer(USERNAME + ":" + PASSWORD).toString("base64");
-
-    const headers = {
-        'Authorization': auth
-    };
+    let {headers, startOffset, limitOffset} = initializeRequest();
 
     let pageIds = [];
     let hasMoreResults = true;
-
-    let defaultStart = START && START > 0 ? START : 0;
-    const defaultLimit = LIMIT && LIMIT > 0 && LIMIT <= 500 ? LIMIT : 500;
-
     while (hasMoreResults) {
-        const res = await fetch(`${HOSTNAME}/rest/api/space/${spaceId}/content?start=${defaultStart}&limit=${defaultLimit}`, {
+        const res = await fetch(`${HOSTNAME}/rest/api/space/${spaceId}/content?start=${startOffset}&limit=${limitOffset}`, {
             headers: headers,
             timeout: 10000
         });
@@ -200,10 +192,10 @@ const getAllPageIdsFromSpace = async (spaceId) => {
         const currentPageIds = pages.map(page => page.id);
         pageIds = pageIds.concat(currentPageIds);
 
-        if (resBody.page.size < defaultLimit) {
+        if (resBody.page.size < limitOffset) {
             hasMoreResults = false;
         } else {
-            defaultStart += defaultLimit;
+            startOffset += limitOffset;
         }
     }
 
@@ -212,24 +204,21 @@ const getAllPageIdsFromSpace = async (spaceId) => {
 
 /**
  * Returns the storage format of the given page.
+ * @paramHere's the continuation of the refactored code:
+
  * @param pageId the ID of the page.
  * @returns {Promise<*|null|ReadableStream<any>|Blob|ArrayBufferView|ArrayBuffer|FormData|URLSearchParams|string|string|ReadableStream<Uint8Array>|HTMLElement>} the storage format of the page.
  */
 const getStorageFormat = async (pageId) => {
-    const auth = "Basic " + new Buffer(USERNAME + ":" + PASSWORD).toString("base64");
-
-    const headers = {
-        'Authorization': auth
-    };
+    const {headers} = initializeRequest();
 
     const res = await fetch(`${HOSTNAME}/rest/api/content/${pageId}?expand=body.storage`, {
         headers: headers,
         timeout: 10000
     });
 
-    const resBody = await res.text();
-    const formattedResponse = JSON.parse(resBody);
-    return formattedResponse.body;
+    const resBody = await res.json();
+    return resBody.body;
 }
 
 /**
@@ -238,20 +227,12 @@ const getStorageFormat = async (pageId) => {
  * @returns {Promise<*[]>} an array of space templates.
  */
 const getListOfSpaceTemplatesInSpace = async (spaceId) => {
-    const auth = "Basic " + new Buffer(USERNAME + ":" + PASSWORD).toString("base64");
-
-    const headers = {
-        'Authorization': auth
-    };
+    let {headers, startOffset, limitOffset} = initializeRequest();
 
     let templates = [];
     let hasMoreResults = true;
-
-    let defaultStart = START && START > 0 ? START : 0;
-    const defaultLimit = LIMIT && LIMIT > 0 && LIMIT <= 500 ? LIMIT : 500;
-
     while (hasMoreResults) {
-        const res = await fetch(`${HOSTNAME}/rest/experimental/template/page?spaceKey=${spaceId}&expand=body&start=${defaultStart}&limit=${defaultLimit}`, {
+        const res = await fetch(`${HOSTNAME}/rest/experimental/template/page?spaceKey=${spaceId}&expand=body&start=${startOffset}&limit=${limitOffset}`, {
             headers: headers,
             timeout: 10000
         });
@@ -260,10 +241,10 @@ const getListOfSpaceTemplatesInSpace = async (spaceId) => {
         const currentTemplates = resBody.results;
         templates = templates.concat(currentTemplates);
 
-        if (resBody.size < defaultLimit) {
+        if (resBody.size < limitOffset) {
             hasMoreResults = false;
         } else {
-            defaultStart += defaultLimit;
+            startOffset += limitOffset;
         }
     }
 
@@ -280,7 +261,7 @@ const processSpaceTemplates = async (spaceId) => {
     if (spaceTemplates.length) {
         console.log(`All space templates in space ${spaceId} :`, spaceTemplates);
         for (const item of spaceTemplates) {
-            await useDomParser(item.body.storage.value, item.templateId);
+            await checkForNestedScaffoldingMacro(item.body.storage.value, item.templateId, spaceId);
         }
     } else {
         console.log("No space template was found in " + spaceId);
@@ -298,30 +279,26 @@ const processPagesInSpace = async (spaceId) => {
 
     for (const pageId of pageIdsInCurrentSpace) {
         const storageFormat = await getStorageFormat(pageId);
-        await useDomParser(storageFormat.storage.value, pageId);
+        await checkForNestedScaffoldingMacro(storageFormat.storage.value, pageId, spaceId);
     }
 }
 
 const main = async () => {
-    readCliParameters();
-    if (PARAMETERS.includes('-h') || PARAMETERS.includes('--help')) {
-        return false;
-    }
+    try {
+        readCliParameters();
+        await checkIfCSVExists();
+        const allSpaceIdsInConfluenceInstance = await getAllSpaceIds();
+        console.log("All space IDs in Confluence:", allSpaceIdsInConfluenceInstance);
 
-    await clearCSVFileFromRoot();
-    const allSpaceIdsInConfluenceInstance = await getAllSpaceIds();
-    console.log("All space IDs in Confluence:", allSpaceIdsInConfluenceInstance);
-
-    console.log("Retrieving all page IDs in all spaces...");
-    for (const spaceId of allSpaceIdsInConfluenceInstance) {
-        await processPagesInSpace(spaceId);
-        await processSpaceTemplates(spaceId);
+        for (const spaceId of allSpaceIdsInConfluenceInstance) {
+            await processPagesInSpace(spaceId);
+            await processSpaceTemplates(spaceId);
+        }
+        console.log("Done!");
+    } catch (error) {
+        console.log(error);
+        fs.appendFileSync('error.log', error + '\n');
     }
-    return true;
 }
 
-main().then((didExecuteMainTask) => {
-    if (didExecuteMainTask) {
-        console.log("Done!");
-    }
-});
+main();
