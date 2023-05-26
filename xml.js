@@ -1,5 +1,6 @@
 const {JSDOM} = require('jsdom');
 const fs = require('fs');
+const path = require('path');
 
 let HOSTNAME = 'http://localhost:9092';
 let USERNAME = '';
@@ -8,6 +9,33 @@ let START = 0;
 let LIMIT = 500;
 
 const PARAMETERS = process.argv.slice(2); // first 2 arguments are node setup location and the current file name
+
+const now = new Date();
+const timeString = now.toLocaleTimeString('en-GB', {hour12: false});
+const dateString = now.toLocaleDateString('en-GB');
+const TIMESTAMP = `${timeString.replace(/:/g, "-")}_${dateString.split('/').join('-')}`;
+
+const RESULTS_DIR = `results-${TIMESTAMP}`;
+
+const SCAFFOLDING_MACROS = [
+    "table-data",
+    "text-data",
+    "date-data",
+    "excerpt-data",
+    "list-data",
+    "number-data",
+    "get-data",
+    "eval-data",
+    "hidden-data",
+    "group-data",
+    "repeating-data",
+    "content-data",
+    "option-data",
+    "set-data",
+    "live-template"
+];
+
+const affectedSpaces = {};
 
 const displayHelp = () => {
     console.log(`Usage: node "./xml" [parameters]
@@ -57,24 +85,6 @@ const readCliParameters = () => {
     }
 };
 
-const SCAFFOLDING_MACROS = [
-    "table-data",
-    "text-data",
-    "date-data",
-    "excerpt-data",
-    "list-data",
-    "number-data",
-    "get-data",
-    "eval-data",
-    "hidden-data",
-    "group-data",
-    "repeating-data",
-    "content-data",
-    "option-data",
-    "set-data",
-    "live-template"
-];
-
 /**
  * This function is used to determine if the given page contains a nested Scaffolding macro and saves the spaceId + contentId to the csv if true.
  * @param storageFormat the storage format of the page
@@ -92,7 +102,8 @@ const checkForNestedScaffoldingMacro = async (storageFormat, contentId, spaceId)
     for (const node of structuredMacroNodes) {
         for (const scaffoldingMacro of SCAFFOLDING_MACROS) {
             if (node.querySelectorAll('[ac:name="' + scaffoldingMacro + '"]').length > 0) {
-                await saveToCSV(spaceId, contentId);
+                await saveAffectedContentToCSV(spaceId, contentId);
+                affectedSpaces[spaceId] = (affectedSpaces[spaceId] || 0) + 1;
                 return;
             }
         }
@@ -100,28 +111,28 @@ const checkForNestedScaffoldingMacro = async (storageFormat, contentId, spaceId)
 }
 
 /**
- * Saves the given array of data to a CSV file in a synchronous fashion.Here's the continuation of the refactored code:
-
+ * Saves the given array of data to a CSV file in a synchronous fashion.
  * @param spaceId spaceId of the contentId
  * @param contentId the contentId - either pageId or space template Id if they contain a nested Scaffolding macro
  * @returns {Promise<void>} nothing
  */
-function saveToCSV(spaceId, contentId) {
-    fs.appendFileSync('data.csv', `${spaceId},${contentId.toString()}\n`);
+function saveAffectedContentToCSV(spaceId, contentId) {
+    const filePath = path.join(RESULTS_DIR, 'affected_pages.csv');
+    if (!fs.existsSync(filePath)) {
+        fs.writeFileSync(filePath, 'spaceId,contentId\n');
+    }
+    fs.appendFileSync(filePath, `${spaceId},${contentId.toString()}\n`);
 }
 
-/**
- * Checks if data.csv exists in the current directory. If it does not exist, it will create it, else it will continue
- * writing in it.
- * @returns {Promise<void>} nothing
- */
-const checkIfCSVExists = async () => {
-    if (!fs.existsSync('data.csv')) {
-        console.log("No data.csv found. Creating data.csv");
-        fs.writeFileSync('data.csv', 'spaceId,contentId\n');
-    } else {
-        console.log('data.csv found, continuing write');
+const saveAffectedSpacesToCSV = () => {
+    fs.writeFileSync(path.join(RESULTS_DIR, 'affected_spaces.csv'), 'spaceId,totalAffectedPages\n');
+    for (const spaceId in affectedSpaces) {
+        fs.appendFileSync(path.join(RESULTS_DIR, 'affected_spaces.csv'), `${spaceId},${affectedSpaces[spaceId]}\n`);
     }
+}
+
+const saveSummaryToTxt = (totalSpacesScanned, totalSpacesAffected, totalPagesScanned) => {
+    fs.writeFileSync(path.join(RESULTS_DIR, 'summary.txt'), `Total spaces scanned: ${totalSpacesScanned}\nTotal spaces with affected pages or space templates: ${totalSpacesAffected}\nTotal pages scanned: ${totalPagesScanned}\nAffected spaces: ${Object.keys(affectedSpaces).join(', ')}\n`);
 }
 
 /**
@@ -193,6 +204,8 @@ const getAllPageIdsFromSpace = async (spaceId) => {
         pageIds = pageIds.concat(currentPageIds);
 
         if (resBody.page.size < limitOffset) {
+            {
+            }
             hasMoreResults = false;
         } else {
             startOffset += limitOffset;
@@ -204,8 +217,6 @@ const getAllPageIdsFromSpace = async (spaceId) => {
 
 /**
  * Returns the storage format of the given page.
- * @paramHere's the continuation of the refactored code:
-
  * @param pageId the ID of the page.
  * @returns {Promise<*|null|ReadableStream<any>|Blob|ArrayBufferView|ArrayBuffer|FormData|URLSearchParams|string|string|ReadableStream<Uint8Array>|HTMLElement>} the storage format of the page.
  */
@@ -286,18 +297,25 @@ const processPagesInSpace = async (spaceId) => {
 const main = async () => {
     try {
         readCliParameters();
-        await checkIfCSVExists();
+        if (!fs.existsSync(RESULTS_DIR)) {
+            fs.mkdirSync(RESULTS_DIR);
+        }
         const allSpaceIdsInConfluenceInstance = await getAllSpaceIds();
         console.log("All space IDs in Confluence:", allSpaceIdsInConfluenceInstance);
 
+        let totalPagesScanned = 0;
         for (const spaceId of allSpaceIdsInConfluenceInstance) {
+            const pageIdsInCurrentSpace = await getAllPageIdsFromSpace(spaceId);
+            totalPagesScanned += pageIdsInCurrentSpace.length;
             await processPagesInSpace(spaceId);
             await processSpaceTemplates(spaceId);
         }
+        saveAffectedSpacesToCSV();
+        saveSummaryToTxt(allSpaceIdsInConfluenceInstance.length, Object.keys(affectedSpaces).length, totalPagesScanned);
         console.log("Done!");
     } catch (error) {
         console.log(error);
-        fs.appendFileSync('error.log', error + '\n');
+        fs.appendFileSync(path.join(RESULTS_DIR, 'error.log'), error + '\n');
     }
 }
 
