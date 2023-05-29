@@ -7,4 +7,5 @@ target/
 *.iws
 .DS_Store
 *.log
+packaged/
 results*/

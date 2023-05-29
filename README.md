@@ -32,13 +32,16 @@ node "./xml" -hn http://localhost:9093 -u admin -p admin
 ### Flags
 
 - `-h, --help`: Display help menu
-- `-hn, --hostname`: Set Confluence hostname, i.e `http://localhost:9093`
 - `-u, --user`: Set Confluence username, i.e `admin`
 - `-p, --password`: Set Confluence user password, i.e `admin`
-- `-s, --start`: Set the start offset for Space/SpaceTemplate/Page searches i.e `0` - (you are recommended to leave this at default)
-- `-l, --limit`: Set the limit for Space/SpaceTemplate/Page searches i.e `500` - (you are recommended to leave this at default)
+- `-sp, --space`: Set Confluence space key, i.e `DS
+- `-hn, --hostname`: Set Confluence hostname, i.e `http://localhost:9093`
+- `-st, --start`: Set the start offset for Space/SpaceTemplate/Page searches i.e `0` - (you are recommended to leave this at default)
+- `-ll, --limit`: Set the limit for Space/SpaceTemplate/Page searches i.e `500` - (you are recommended to leave this at default)
 
 ## Output
 
-The script will create a CSV file named `data.csv` in the same directory. This file will contain the spaceId and contentId (either pageId or space template Id) if they contain a nested Scaffolding macro.
+The script will create two output files:
+- affected_pages.csv which will be continuously written to as the script runs and it will contain spaceId, pageId of affected pages.
+- affected_spaces.csv which will be written when the script finishes and it will contain spaceId of affected spaces and count of affected pages respectively.
 

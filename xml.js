@@ -7,6 +7,7 @@ let USERNAME = '';
 let PASSWORD = '';
 let START = 0;
 let LIMIT = 500;
+let SPACE_ID = '';
 
 const PARAMETERS = process.argv.slice(2); // first 2 arguments are node setup location and the current file name
 
@@ -40,11 +41,12 @@ const affectedSpaces = {};
 const displayHelp = () => {
     console.log(`Usage: node "./xml" [parameters]
         -h, --help              Display help menu
-        -hn, --hostname         Set Confluence hostname, i.e http://localhost:9093
         -u,  --user             Set Confluence username, i.e admin
         -p,  --password         Set Confluence user password, i.e admin
-        -s,  --start            Set the start offset for Space/SpaceTemplate/Page searches i.e 0 - (you are recommended to leave this at default)
-        -l,  --limit            Set the limit for Space/SpaceTemplate/Page searches i.e 500 - (you are recommended to leave this at default)
+        -s, --spaceId           Set Confluence spaceId, i.e DS or leave blank to search all spaces.
+        -hn, --hostname         Set Confluence hostname, i.e http://localhost:9093
+        -st,  --start           Set the start offset for Space/SpaceTemplate/Page searches i.e 0 - (you are recommended to leave this at default)
+        -lt,  --limit           Set the limit for Space/SpaceTemplate/Page searches i.e 500 - (you are recommended to leave this at default)
     `);
 };
 
@@ -53,8 +55,9 @@ const readCliParameters = () => {
         '-hn': '--hostname',
         '-u': '--user',
         '-p': '--password',
-        '-s': '--start',
-        '-l': '--limit'
+        '-s': '--spaceId',
+        '-st': '--start',
+        '-lt': '--limit'
     };
 
     for (let i = 0; i < PARAMETERS.length; i += 2) {
@@ -62,14 +65,17 @@ const readCliParameters = () => {
         const value = PARAMETERS[i + 1];
 
         switch (PARAMETER_MAP[parameter] || parameter) {
-            case '--hostname':
-                HOSTNAME = value;
-                break;
             case '--user':
                 USERNAME = value;
                 break;
             case '--password':
                 PASSWORD = value;
+                break;
+            case '--spaceId':
+                SPACE_ID = value;
+                break;
+            case '--hostname':
+                HOSTNAME = value;
                 break;
             case '--start':
                 START = parseInt(value, 10);
@@ -102,18 +108,20 @@ const checkForNestedScaffoldingMacro = async (storageFormat, contentId, spaceId)
     for (const node of structuredMacroNodes) {
         for (const scaffoldingMacro of SCAFFOLDING_MACROS) {
             if (node.querySelectorAll('[ac:name="' + scaffoldingMacro + '"]').length > 0) {
+                console.log(`Found nested Scaffolding macro in page ${contentId}`);
                 await saveAffectedContentToCSV(spaceId, contentId);
                 affectedSpaces[spaceId] = (affectedSpaces[spaceId] || 0) + 1;
                 return;
             }
         }
     }
+    console.log(`No nested Scaffolding macro found in page ${contentId}`);
 }
 
 /**
- * Saves the given array of data to a CSV file in a synchronous fashion.
+ * Used for saving affected Pages' IDs to a CSV file.
  * @param spaceId spaceId of the contentId
- * @param contentId the contentId - either pageId or space template Id if they contain a nested Scaffolding macro
+ * @param contentId either pageId or space template Id if they contain a nested Scaffolding macro
  * @returns {Promise<void>} nothing
  */
 function saveAffectedContentToCSV(spaceId, contentId) {
@@ -129,10 +137,6 @@ const saveAffectedSpacesToCSV = () => {
     for (const spaceId in affectedSpaces) {
         fs.appendFileSync(path.join(RESULTS_DIR, 'affected_spaces.csv'), `${spaceId},${affectedSpaces[spaceId]}\n`);
     }
-}
-
-const saveSummaryToTxt = (totalSpacesScanned, totalSpacesAffected, totalPagesScanned) => {
-    fs.writeFileSync(path.join(RESULTS_DIR, 'summary.txt'), `Total spaces scanned: ${totalSpacesScanned}\nTotal spaces with affected pages or space templates: ${totalSpacesAffected}\nTotal pages scanned: ${totalPagesScanned}\nAffected spaces: ${Object.keys(affectedSpaces).join(', ')}\n`);
 }
 
 /**
@@ -156,6 +160,7 @@ function initializeRequest() {
  * @returns {Promise<*>} an array of space IDs
  */
 const getAllSpaceIds = async () => {
+    console.log(`Getting all space IDs from... ${HOSTNAME}`);
     let {headers, startOffset, limitOffset} = initializeRequest();
 
     let spaceKeys = [];
@@ -187,7 +192,7 @@ const getAllSpaceIds = async () => {
  * @param spaceId the ID of the space.
  * @returns {Promise<*[]>} an array of page IDs.
  */
-const getAllPageIdsFromSpace = async (spaceId) => {
+const getAllPageIdsInSpace = async (spaceId) => {
     let {headers, startOffset, limitOffset} = initializeRequest();
 
     let pageIds = [];
@@ -204,8 +209,6 @@ const getAllPageIdsFromSpace = async (spaceId) => {
         pageIds = pageIds.concat(currentPageIds);
 
         if (resBody.page.size < limitOffset) {
-            {
-            }
             hasMoreResults = false;
         } else {
             startOffset += limitOffset;
@@ -221,6 +224,7 @@ const getAllPageIdsFromSpace = async (spaceId) => {
  * @returns {Promise<*|null|ReadableStream<any>|Blob|ArrayBufferView|ArrayBuffer|FormData|URLSearchParams|string|string|ReadableStream<Uint8Array>|HTMLElement>} the storage format of the page.
  */
 const getStorageFormat = async (pageId) => {
+    console.log(`Getting storage format for contentId: ${pageId}`)
     const {headers} = initializeRequest();
 
     const res = await fetch(`${HOSTNAME}/rest/api/content/${pageId}?expand=body.storage`, {
@@ -268,14 +272,12 @@ const getListOfSpaceTemplatesInSpace = async (spaceId) => {
  * @returns {Promise<void>} void.
  */
 const processSpaceTemplates = async (spaceId) => {
+    console.log(`Processing space templates in space ${spaceId}...`);
     const spaceTemplates = await getListOfSpaceTemplatesInSpace(spaceId);
     if (spaceTemplates.length) {
-        console.log(`All space templates in space ${spaceId} :`, spaceTemplates);
         for (const item of spaceTemplates) {
             await checkForNestedScaffoldingMacro(item.body.storage.value, item.templateId, spaceId);
         }
-    } else {
-        console.log("No space template was found in " + spaceId);
     }
 }
 
@@ -284,9 +286,9 @@ const processSpaceTemplates = async (spaceId) => {
  * @param spaceId the ID of the space.
  * @returns {Promise<void>} void.
  */
-const processPagesInSpace = async (spaceId) => {
-    const pageIdsInCurrentSpace = await getAllPageIdsFromSpace(spaceId);
-    console.log(`All page IDs in space ${spaceId} :`, pageIdsInCurrentSpace);
+const processPages = async (spaceId) => {
+    console.log(`Processing pages in space ${spaceId}...`)
+    const pageIdsInCurrentSpace = await getAllPageIdsInSpace(spaceId);
 
     for (const pageId of pageIdsInCurrentSpace) {
         const storageFormat = await getStorageFormat(pageId);
@@ -296,26 +298,35 @@ const processPagesInSpace = async (spaceId) => {
 
 const main = async () => {
     try {
+        // 1. Read CLI parameters
         readCliParameters();
+
+        // 2. Make missing results directory
         if (!fs.existsSync(RESULTS_DIR)) {
             fs.mkdirSync(RESULTS_DIR);
         }
-        const allSpaceIdsInConfluenceInstance = await getAllSpaceIds();
-        console.log("All space IDs in Confluence:", allSpaceIdsInConfluenceInstance);
 
-        let totalPagesScanned = 0;
+        // 3. Determine spaces to scan
+        let allSpaceIdsInConfluenceInstance;
+        if (SPACE_ID) { // If a spaceId was provided, only scan that space
+            allSpaceIdsInConfluenceInstance = [SPACE_ID];
+        } else { // Otherwise, scan all spaces
+            allSpaceIdsInConfluenceInstance = await getAllSpaceIds();
+        }
+
+        // 4. For every space, scan all pages and space templates for nested Scaff macros
         for (const spaceId of allSpaceIdsInConfluenceInstance) {
-            const pageIdsInCurrentSpace = await getAllPageIdsFromSpace(spaceId);
-            totalPagesScanned += pageIdsInCurrentSpace.length;
-            await processPagesInSpace(spaceId);
+            await processPages(spaceId);
             await processSpaceTemplates(spaceId);
         }
+
+        // 5. Save results to CSV and TXT
         saveAffectedSpacesToCSV();
-        saveSummaryToTxt(allSpaceIdsInConfluenceInstance.length, Object.keys(affectedSpaces).length, totalPagesScanned);
-        console.log("Done!");
+        console.log(`Script completed!. View your results in: ${RESULTS_DIR}`);
     } catch (error) {
         console.log(error);
-        fs.appendFileSync(path.join(RESULTS_DIR, 'error.log'), error + '\n');
+        fs.appendFileSync(path.join(RESULTS_DIR, 'error.log'), `${error.stack}\n`);
+        throw error;
     }
 }
 
